@@ -1,58 +1,59 @@
-const filePath = path.join(__dirname, process.argv[2])
-const data = fs.readFileSync(filePath, 'utf-8')
+const fs = require('fs/promises');
+const { lstatSync } = require('fs');
+const path = require('path');
+const inquirer = require('inquirer');
+const yargs = require('yargs');
 
-console.log(data)
-
+let currentDirectory = process.cwd();
 const options = yargs
-    .usage('Usage: -p <path> to file')
-    .option('p', {
-        alias: 'path',
-        describe: 'Path to file',
-        type: 'string',
-        demandOption: true,
-    }).argv
+    .positional('d', {
+        describe: 'Path to directory',
+        default: process.cwd(),
+    })
+    .positional('p', {
+        describe: 'Pattern',
+        default: '',
+    }).argv;
 
-console.log(options)
+class ListItem {
+    constructor(path, fileName) {
+        this.path = path
+        this.fileName = fileName
+    }
 
-const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-})
+    get isDir() {
+        return lstatSync(this.path).isDirectory();
+    }
+}
 
-rl.question('Please enter the path to the file: ', filePath => {
-    console.log(filePath)
-    rl.close()
-})
+const run = async () => {
+    const list = await fs.readdir(currentDirectory);
+    const items = list.map(fileName =>
+        new ListItem(path.join(currentDirectory, fileName), fileName));
 
-const question = (query) => new Promise(resolve => rl.question(query, resolve))
+    const item = await inquirer
+        .prompt([
+            {
+                name: 'filename',
+                type: 'list',
+                message: `Choose: ${currentDirectory}`,
+                choices: items.map(item => ({name: item.fileName, value: item}))
+            }
+        ])
+        .then(answer => answer.fileName);
 
-(async () => {
-    const filePath = await question('Please enter the path to the file: ')
-    const encoding = await question('Please enter encoding: ')
+    if(item.isDir) {
+        currentDirectory = item.path;
+        return await run();
+    } else {
+        const data = await fs.readFile(item.path, 'utf-8');
 
-    const fullFilePath = path.resolve(__dirname, filePath)
-    const data = fs.readFileSync(fullFilePath, encoding)
+        if(options.p == null) console.log(data);
+        else {
+            const regExp = new RegExp(options.p, 'igm');
+            console.log(data.match(regExp));
+        }
+    }
+}
 
-    console.log(data)
-
-    rl.close()
-})()
-
-const isFile = (fileName) => fs.lstatSync(fileName).isFile()
-
-const list = fs.readdirSync('./').filter(isFile);
-
-inquirer.prompt([
-    {
-        name: 'fileName',
-        type: 'list',
-        message: 'Choose a file to read:',
-        choices: list
-    },
-]).then(({fileName}) => {
-
-    const fullFilePath = path.join(__dirname, fileName)
-    const data = fs.readFileSync(fullFilePath, 'utf-8')
-
-    console.log(data)
-})
+run();
